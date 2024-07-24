@@ -1,0 +1,222 @@
+```{r}
+# Load necessary libraries
+install.packages("tree")
+library(tree)
+
+install.packages("ggplot2")
+library(ggplot2)
+```
+
+
+
+#1. Dataset selection:
+dataset used: https://www.kaggle.com/datasets/adityakadiwal/water-potability
+
+```{r}
+water_data <- read.csv("C:/Users/yesss/Downloads/water_potability.csv")
+summary(water_data)
+```
+
+
+
+
+#2. Data Preprocessing/Feature engineering :
+change potability from numeric to factor
+then remove the missing data and replace it with median
+
+
+```{r}
+
+water_data$Potability <- as.factor(water_data$Potability)
+
+
+for (i in seq_along(water_data)) {
+  if (is.numeric(water_data[[i]])) {
+    water_data[[i]][is.na(water_data[[i]])] <- median(water_data[[i]], na.rm = TRUE)
+  }
+}
+```
+
+
+
+
+
+#3. Exlporatory data analysis:
+
+plot histograms
+we can see that the data is pretty much normally distributed with solids being slightly skewed right
+
+```{r}
+predictor_vars <- c("ph", "Hardness", "Solids", "Chloramines", "Sulfate", "Conductivity", 
+                    "Organic_carbon", "Trihalomethanes", "Turbidity")
+for (var in predictor_vars) {
+  binwidth <- (max(water_data[[var]]) - min(water_data[[var]]))/20
+  
+  p <- ggplot(water_data, aes_string(x = var)) +
+    geom_histogram(binwidth = binwidth, fill = "skyblue", color = "black", alpha = 0.7) +
+    labs(title = paste("Distribution of", var), x = var, y = "Frequency") +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  print(p)
+}
+
+```
+
+plot boxplots
+
+hardness has an outlier when potability = 1 at around hardness = 50.
+solids has a slight outlier at above 45,000 for potability at 1
+sulfate has an outlier when potability = 1 and sulfate is < 100
+organic carbon has outliers at organic carbon > 25 for potability = 0 and organic carbon < 5 at potability = 1
+trihalomethanes has an outlier at potability = 0 and trihalomethanes < 12.5
+
+
+```{r}
+for (var in predictor_vars) {
+  p <- ggplot(water_data, aes_string(x = "Potability", y = var)) +
+    geom_boxplot(fill = "lightgreen", color = "black", alpha = 0.7) +
+    labs(title = paste("Boxplot of", var), x = "Potability", y = var) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  print(p)
+}
+```
+Removing some of the outliers
+I choose to remove the outliers in hardness, solids, sulfate and organic carbon since their margin was a bit large
+and I believed they could cause some discrepancies
+
+```{r}
+water_data <- subset(water_data, Hardness > 50 & Solids <= 46000 & Sulfate > 100 & Organic_carbon >= 5)
+
+#replot data to see difference
+
+for (var in predictor_vars) {
+  p <- ggplot(water_data, aes_string(x = "Potability", y = var)) +
+    geom_boxplot(fill = "lightgreen", color = "black", alpha = 0.7) +
+    labs(title = paste("Boxplot of", var), x = "Potability", y = var) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  print(p)
+}
+```
+
+
+
+
+
+#3. Model selction & training:
+
+I choose decision tree since they handle categorical variables well and are more interpretable because they make decisions based on simple rules
+to train data I split the original data into 70% training and 30% for testing
+
+```{r}
+set.seed(1)
+
+train_indices <- sample(seq_len(nrow(water_data)), size = 0.7 * nrow(water_data))
+
+train_data <- water_data[train_indices, ]
+test_data <- water_data[-train_indices, ]
+```
+
+Here is the code to plot the decision tree
+
+```{r}
+tree_model <- tree(Potability ~ ., method = "class", data = train_data, mincut = 10, minsize = 20, mindev = 0.001)
+
+plot(tree_model)
+text(tree_model, pretty = 0, cex = 0.65, digits = 1)
+```
+
+
+
+
+#4. Model evaluation:
+confusion matrix and accuracy
+```{r}
+
+predictions <- predict(tree_model, test_data, type = "class")
+
+confusion_matrix <-table(Predicted = predictions, Actual = test_data$Potability)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+print(confusion_matrix)
+print(accuracy)
+summary(tree_model)
+
+```
+
+
+
+
+#5. Model Tuning:
+
+I used the same concept as the example from the chapter 8 notebook
+except instead of having a graph of the # of errors vs tree size, I decided to
+plot accuracy vs tree size since I feel like it would be a better way to select
+the ideal size to prune the tree to
+
+
+```{r}
+cv_tree <- cv.tree(tree_model, FUN = prune.misclass)
+cv_tree
+```
+
+loop through the tree finding the best accuracy and then collecting the data to be graphed later
+
+```{r}
+best_acc <- 0
+best_size <- 0
+
+accuracy_data <- data.frame(Tree_Size = integer(), Accuracy = numeric())
+
+for (size in 2:100) {
+  
+  pruned <- prune.misclass(tree_model, best = size)
+  
+  test_predictions <- predict(pruned, newdata = test_data, type = 'class')
+  
+  cm_pruned <- table(Predicted = test_predictions, Actual = test_data$Potability)
+  accuracy_pruned <- sum(diag(cm_pruned)) / sum(cm_pruned)
+  
+  #check if this is the best accuracy so far
+  if (accuracy_pruned > best_acc) {
+    best_acc <- accuracy_pruned
+    best_size <- size
+  }
+  
+  accuracy_data <- rbind(accuracy_data, data.frame(Tree_Size = size, Accuracy = accuracy_pruned))
+}
+
+print(paste("Best Tree Size:", best_size))
+print(paste("Best Accuracy:", best_acc))
+
+```
+
+plot the graph
+You can see that the pruned tree is far more clean and intrepretable unlike the messy tree from earlier
+the accuracy has also improved by a decent bit.
+
+Although the misclassification error rate and the residual mean deviance have both increased, this is because the original tree 
+was simply too overfitted. This pruned model will have better peformance on new data.
+
+```{r}
+final_pruned <- prune.misclass(tree_model, best = best_size)
+
+plot(final_pruned)
+summary(final_pruned)
+text(final_pruned, pretty = 0, cex = 0.65, digits = 1)
+
+final_predictions <- predict(final_pruned, newdata = test_data, type = 'class')
+final_cm <- table(Predicted = final_predictions, Actual = test_data$Potability)
+final_accuracy <- sum(diag(final_cm)) / sum(final_cm)
+
+print(final_cm)
+print(final_accuracy)
+
+# Plot the accuracy data
+ggplot(accuracy_data, aes(x = Tree_Size, y = Accuracy)) +
+  geom_point(color = "red") +
+  labs(x = "Tree Size", y = "Accuracy", title = "Accuracy by Tree Size") +
+  theme(plot.title = element_text(hjust = .5))
+```
+
