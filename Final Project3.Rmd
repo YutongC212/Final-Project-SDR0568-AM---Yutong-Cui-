@@ -220,3 +220,21 @@ ggplot(accuracy_data, aes(x = Tree_Size, y = Accuracy)) +
   theme(plot.title = element_text(hjust = .5))
 ```
 
+#6. Model Deployment:
+We will try to use this model to predict and verify the potability of tap water vs sewer water
+
+```{r}
+tap <- data.frame(ph = 5, Sulfate = 294, Hardness = 100, Turbidity = 1, Conductivity = 300, Chloramines = 3, Solids = 300, Organic_carbon = 0.7, Trihalomethanes = 1.86)
+
+prediction <- predict(pruned_model, tap, type = 'class')
+print(prediction)
+```
+```{r}
+sewer <- data.frame(ph = 9.2, Sulfate = 602, Hardness = 300, Turbidity = 8, Conductivity = 2501, Chloramines = 0, Solids = 300, Organic_carbon = 16, Trihalomethanes = 0)
+
+prediction <- predict(pruned_model, sewer, type = 'class')
+print(prediction)
+```
+
+The model is able to correctly predict the potability of both examples. However these are for more extreme cases where it is way more clear which is which.
+In a more in-between case, this model may not necessarily be accurate
