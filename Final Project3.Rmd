@@ -5,6 +5,10 @@ library(tree)
 
 install.packages("ggplot2")
 library(ggplot2)
+
+install.packages("randomForest")
+library(randomForest)
+
 ```
 
 #1. Dataset selection:
@@ -12,10 +16,7 @@ dataset used: https://www.kaggle.com/datasets/adityakadiwal/water-potability
 
 ```{r}
 water_data <- read.csv("C:/Users/yesss/Downloads/water_potability.csv")
-summary(water_data)
 ```
-
-
 
 
 #2. Data Preprocessing/Feature engineering :
@@ -36,13 +37,19 @@ for (i in seq_along(water_data)) {
 ```
 
 
-
-
-
 #3. Exlporatory data analysis:
 
-plot histograms
+
+```{r}
+summary(water_data)
+head(water_data)
+```
+
+
+plot histograms to see distribution
 we can see that the data is pretty much normally distributed with solids being slightly skewed right
+While decision trees don't require normal distribution, having well-distributed data can help in achieving better splits and more balanced decision rules. 
+
 
 ```{r}
 predictor_vars <- c("ph", "Hardness", "Solids", "Chloramines", "Sulfate", "Conductivity", 
@@ -60,8 +67,10 @@ for (var in predictor_vars) {
 
 ```
 
-plot boxplots
+plot boxplots (bivariate analysis)
+the relationship between each predictor variable and potability is shown
 
+BOxplots also show some outliers:
 hardness has an outlier when potability = 1 at around hardness = 50.
 solids has a slight outlier at above 45,000 for potability at 1
 sulfate has an outlier when potability = 1 and sulfate is < 100
@@ -79,33 +88,26 @@ for (var in predictor_vars) {
   print(p)
 }
 ```
-Removing some of the outliers
-I choose to remove the outliers in hardness, solids, sulfate and organic carbon since their margin was a bit large
-and I believed they could cause some discrepancies
+I could technically remove the outliers, but because of my already small dataset size and the fact that decision trees are robust to outliers, I choose to keep them there.
+
+
+Although I'm using a decison tree for my model, I can also use the varImpPlot function from the randomforest package to see the importance of each variable towards the potability. This is because for decision trees, the concept of statisitcally significance doesn't really exist. After running this function, we can see that sulfate is the most important variable in determining water potability.
 
 ```{r}
-water_data <- subset(water_data, Hardness > 50 & Solids <= 46000 & Sulfate > 100 & Organic_carbon >= 5)
+rf_model <- randomForest(Potability ~ ., data = water_data, importance = TRUE)
 
-#replot data to see difference
+varImpPlot(rf_model)
 
-for (var in predictor_vars) {
-  p <- ggplot(water_data, aes_string(x = "Potability", y = var)) +
-    geom_boxplot(fill = "lightgreen", color = "black", alpha = 0.7) +
-    labs(title = paste("Boxplot of", var), x = "Potability", y = var) +
-    theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5))
-  print(p)
-}
+importance_scores <- importance(rf_model)
+print(importance_scores)
 ```
-
-
-
 
 
 #3. Model selction & training:
 
-I choose decision tree since they handle categorical variables well and are more interpretable because they make decisions based on simple rules
-to train data I split the original data into 70% training and 30% for testing
+I chose decision trees since they handle categorical variables well and are more interpretable because they make decisions based on simple rules. I did also consider logistic regression, but that assumes that the relationship between the predictors and the log-odds of the outcome is linear. Additionally, logistic regression requires categorical variables to be converted into dummy variables and is less robust to outliers.
+
+To train data I split the original data into 70% training and 30% for testing. 
 
 ```{r}
 set.seed(1)
@@ -117,21 +119,23 @@ test_data <- water_data[-train_indices, ]
 ```
 
 Here is the code to plot the decision tree
-
+The first model of the tree is very messy and overfitted, having 147 nodes.
 ```{r}
 tree_model <- tree(Potability ~ ., method = "class", data = train_data, mincut = 10, minsize = 20, mindev = 0.001)
 
 plot(tree_model)
+summary(tree_model)
 text(tree_model, pretty = 0, cex = 0.65, digits = 1)
 ```
 
 
-
-
 #4. Model evaluation:
 confusion matrix and accuracy
-```{r}
+Accuracy was not the best at around 60%
+The low misclassification error rate and residual mean deviance may indicate that this model is overfitted to the training data
 
+```{r}
+set.seed(1)
 predictions <- predict(tree_model, test_data, type = "class")
 
 confusion_matrix <-table(Predicted = predictions, Actual = test_data$Potability)
@@ -144,19 +148,21 @@ summary(tree_model)
 ```
 
 
-
-
 #5. Model Tuning:
 
-I used the same concept as the example from the chapter 8 notebook
-except instead of having a graph of the # of errors vs tree size, I decided to
-plot accuracy vs tree size since I feel like it would be a better way to select
-the ideal size to prune the tree to
+I tried to use the same concept as the example from the chapter 8 notebook of using correlation having a graph of the # of errors vs tree size. However, the  I decided to plot accuracy vs tree size since I feel like it would be a better way to select the ideal size to prune the tree to
 
+CV graph here doesn't help very much
 
 ```{r}
 cv_tree <- cv.tree(tree_model, FUN = prune.misclass)
 cv_tree
+
+ggplot(data = data.frame(cv_tree$size, cv_tree$dev),
+  aes(x = cv_tree$size, y = cv_tree$dev)) +
+  geom_line(color = "darkblue") +
+  labs(x = "Tree Size", y = "Number of Errors", title = "CV Error by Tree Size") +
+  theme(plot.title = element_text(hjust = .5))
 ```
 
 loop through the tree finding the best accuracy and then collecting the data to be graphed later
@@ -181,58 +187,80 @@ for (size in 2:100) {
     best_acc <- accuracy_pruned
     best_size <- size
   }
-  
   accuracy_data <- rbind(accuracy_data, data.frame(Tree_Size = size, Accuracy = accuracy_pruned))
 }
 
 print(paste("Best Tree Size:", best_size))
 print(paste("Best Accuracy:", best_acc))
 
-```
-
-plot the graph
-You can see that the pruned tree is far more clean and intrepretable unlike the messy tree from earlier
-the accuracy has also improved by a decent bit.
-
-Although the misclassification error rate and the residual mean deviance have both increased, this is because the original tree 
-was simply too overfitted. This pruned model will have better peformance on new data.
-
-```{r}
-final_pruned <- prune.misclass(tree_model, best = best_size)
-
-plot(final_pruned)
-summary(final_pruned)
-text(final_pruned, pretty = 0, cex = 0.65, digits = 1)
-
-final_predictions <- predict(final_pruned, newdata = test_data, type = 'class')
-final_cm <- table(Predicted = final_predictions, Actual = test_data$Potability)
-final_accuracy <- sum(diag(final_cm)) / sum(final_cm)
-
-print(final_cm)
-print(final_accuracy)
-
-# Plot the accuracy data
 ggplot(accuracy_data, aes(x = Tree_Size, y = Accuracy)) +
   geom_point(color = "red") +
   labs(x = "Tree Size", y = "Accuracy", title = "Accuracy by Tree Size") +
   theme(plot.title = element_text(hjust = .5))
 ```
 
-#6. Model Deployment:
-We will try to use this model to predict and verify the potability of tap water vs sewer water
+You can see that the pruned tree is far more clean and intrepretable unlike the messy tree from earlier. The accuracy has also improved by a decent bit.
+
+Although the misclassification error rate and the residual mean deviance have both increased, this is because the original tree  was simply too overfitted. This pruned model will have better peformance on new data.
 
 ```{r}
-tap <- data.frame(ph = 5, Sulfate = 294, Hardness = 100, Turbidity = 1, Conductivity = 300, Chloramines = 3, Solids = 300, Organic_carbon = 0.7, Trihalomethanes = 1.86)
+pruned_model <- prune.misclass(tree_model, best = best_size)
 
-prediction <- predict(pruned_model, tap, type = 'class')
+plot(pruned_model)
+summary(pruned_model)
+text(pruned_model, pretty = 0, cex = 0.65, digits = 1)
+
+final_predictions <- predict(pruned_model, newdata = test_data, type = 'class')
+final_cm <- table(Predicted = final_predictions, Actual = test_data$Potability)
+final_accuracy <- sum(diag(final_cm)) / sum(final_cm)
+
+print(final_cm)
+print(final_accuracy)
+
+```
+
+
+#6. Model Deployment  & Output:
+We will try to use this model to predict and verify the potability of bottled water vs sewage water
+
+```{r}
+bottled <- data.frame(ph = 5, Sulfate = 120, Hardness = 100, Turbidity = 1, Conductivity = 300, Chloramines = 3, Solids = 300, Organic_carbon = 0.7, Trihalomethanes = 1.86)
+
+prediction <- predict(pruned_model, bottled, type = 'class')
 print(prediction)
 ```
 ```{r}
-sewer <- data.frame(ph = 9.2, Sulfate = 602, Hardness = 300, Turbidity = 8, Conductivity = 2501, Chloramines = 0, Solids = 300, Organic_carbon = 16, Trihalomethanes = 0)
+sewage <- data.frame(ph = 9.2, Sulfate = 602, Hardness = 300, Turbidity = 8, Conductivity = 2501, Chloramines = 0, Solids = 300, Organic_carbon = 16, Trihalomethanes = 0)
 
-prediction <- predict(pruned_model, sewer, type = 'class')
+prediction <- predict(pruned_model, sewage, type = 'class')
 print(prediction)
 ```
 
-The model is able to correctly predict the potability of both examples. However these are for more extreme cases where it is way more clear which is which.
-In a more in-between case, this model may not necessarily be accurate
+The model is able to correctly predict the potability of both the sewage water and bottled water. 
+
+#7. Assumptions:
+Like with all decision trees, this model assumes that the relationship between the predictors and the response variable can be captured by a series of binary splits. As for the data, it also assumes that the data being tested is from a water body (lake, stream, river, ocean, pond). This is because the model is still largely trained on data from more 'dirty' water sources. The dataset description mentions that the data is collected from water bodies around the world, which directly shows that the data is better suited for predicting notabilities of water bodies, so there could still be cases where clean water is misclassified.
+
+#8. Interpretations and Interesting Findings from the Model Coefficients:
+
+Decision trees do not have coefficients like linear models. Instead, they use a series of splits based on the values of the predictor variables to make predictions. The splits indicate which variables are most important in predicting the outcome. The first split is on Sulfate at 258.97 mg/L. This indicates that Sulfate is the most important variable in predicting water potability. A low sulfate level almost guarantees that the water is safe to drink. When I first looked at the definitions of the predictor variables, I originally believed that turbidity would be one of the most important predictors. Water is usually visually classified as dirty or clean by turbidity. However, on the pruned decision tree, it's barely included, meaning that it really has no major effect on potability. So this means that your water could be extremely murky and filled with sediment/dirt, and it could still be safe to drink if other factors like sulfate, ph, and chloramines are within safe levels 
+
+#8. Additional Work:
+this was a code chunk I originally wrote to remove outliers 
+I tried this initially but it caused my pruned tree to have only 8 nodes and also made the tree predict that bottled water was unsafe to drink. This clearly affected my model poorly so it was also one of my reasons for not removing outliers.
+```{r}
+#remove outliers
+water_data <- subset(water_data, Hardness > 50 & Solids <= 46000 & Sulfate > 100 & Organic_carbon >= 5)
+
+#replot data to see difference
+
+for (var in predictor_vars) {
+  p <- ggplot(water_data, aes_string(x = "Potability", y = var)) +
+    geom_boxplot(fill = "lightgreen", color = "black", alpha = 0.7) +
+    labs(title = paste("Boxplot of", var), x = "Potability", y = var) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+  print(p)
+}
+```
+
