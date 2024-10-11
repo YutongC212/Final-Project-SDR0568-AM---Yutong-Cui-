@@ -101,7 +101,24 @@ varImpPlot(rf_model)
 importance_scores <- importance(rf_model)
 print(importance_scores)
 ```
+Here is a bagged version 
+```{r}
+bagging_model <- randomForest(Potability ~ ., data = train_data, mtry = ncol(train_data) - 1, importance = TRUE)
 
+# Predict on the test set
+bagging_predictions <- predict(bagging_model, newdata = test_data)
+
+# Evaluate the accuracy
+bagging_confusion_matrix <- table(Predicted = bagging_predictions, Actual = test_data$Potability)
+bagging_accuracy <- sum(diag(bagging_confusion_matrix)) / sum(bagging_confusion_matrix)
+
+# Print the confusion matrix and accuracy
+print(bagging_confusion_matrix)
+print(paste("Bagging Model Accuracy:", round(bagging_accuracy, 4)))
+
+# Variable importance plot
+varImpPlot(bagging_model)
+```
 
 #3. Model selction & training:
 
