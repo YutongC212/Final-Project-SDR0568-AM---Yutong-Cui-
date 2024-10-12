@@ -18,11 +18,9 @@ dataset used: https://www.kaggle.com/datasets/adityakadiwal/water-potability
 water_data <- read.csv("C:/Users/yesss/Downloads/water_potability.csv")
 ```
 
-
 #2. Data Preprocessing/Feature engineering :
 change potability from numeric to factor
 then remove the missing data and replace it with median
-
 
 ```{r}
 
@@ -36,7 +34,6 @@ for (i in seq_along(water_data)) {
 }
 ```
 
-
 #3. Exlporatory data analysis:
 
 
@@ -44,7 +41,6 @@ for (i in seq_along(water_data)) {
 summary(water_data)
 head(water_data)
 ```
-
 
 plot histograms to see distribution
 we can see that the data is pretty much normally distributed with solids being slightly skewed right
